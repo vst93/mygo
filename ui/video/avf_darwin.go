@@ -38,6 +38,8 @@ var (
 	msgHasNewBuffer        func(obj objc.ID, s objc.SEL, t cmTime) bool
 	msgCopyBuffer          func(obj objc.ID, s objc.SEL, t cmTime, display uintptr) uintptr
 	msgSeek                func(obj objc.ID, s objc.SEL, t, before, after cmTime)
+	msgInsertTimeRange     func(obj objc.ID, s objc.SEL, span cmTimeRange, track objc.ID, at cmTime, err *objc.ID) bool
+	msgScaleTimeRange      func(obj objc.ID, s objc.SEL, span cmTimeRange, to cmTime)
 	msgSetFloat32          func(obj objc.ID, s objc.SEL, v float32)
 	msgFloat32             func(obj objc.ID, s objc.SEL) float32
 	msgSetBool             func(obj objc.ID, s objc.SEL, v bool)
@@ -64,7 +66,8 @@ var (
 	// and passes.
 	cvMatrixKey, cvMatrix709, cvMatrix601, cvMatrix2020 uintptr
 	cvPixelFormatKey, cvMetalCompatibilityKey           uintptr
-	avMediaTypeVideo                                    uintptr
+	avMediaTypeVideo, avMediaTypeAudio                  uintptr
+	avPitchSpectral                                     uintptr
 
 	// loaderClass is the class of the delegates answering for bytes in
 	// memory; loaders their sources, by the number in their URL.
@@ -105,6 +108,16 @@ func (t cmTime) duration() (time.Duration, bool) {
 
 func cmTimeOf(d time.Duration) cmTime {
 	return cmTime{Value: int64(d), Timescale: int32(time.Second), Flags: cmTimeValid}
+}
+
+// cmTimeRange is a CMTimeRange.
+type cmTimeRange struct {
+	Start, Duration cmTime
+}
+
+// wholeOf is the range the whole of d spans, from zero.
+func wholeOf(d time.Duration) cmTimeRange {
+	return cmTimeRange{Start: cmTime{Flags: cmTimeValid, Timescale: 1}, Duration: cmTimeOf(d)}
 }
 
 var sels sync.Map
@@ -183,6 +196,8 @@ func loadAVFoundation() error {
 		purego.RegisterFunc(&msgHasNewBuffer, msgSend)
 		purego.RegisterFunc(&msgCopyBuffer, msgSend)
 		purego.RegisterFunc(&msgSeek, msgSend)
+		purego.RegisterFunc(&msgInsertTimeRange, msgSend)
+		purego.RegisterFunc(&msgScaleTimeRange, msgSend)
 		purego.RegisterFunc(&msgSetFloat32, msgSend)
 		purego.RegisterFunc(&msgFloat32, msgSend)
 		purego.RegisterFunc(&msgSetBool, msgSend)
@@ -210,6 +225,8 @@ func loadAVFoundation() error {
 		cvPixelFormatKey = constant(cv, "kCVPixelBufferPixelFormatTypeKey")
 		cvMetalCompatibilityKey = constant(cv, "kCVPixelBufferMetalCompatibilityKey")
 		avMediaTypeVideo = constant(av, "AVMediaTypeVideo")
+		avMediaTypeAudio = constant(av, "AVMediaTypeAudio")
+		avPitchSpectral = constant(av, "AVAudioTimePitchAlgorithmSpectral")
 		if class("AVPlayer") == 0 || class("AVPlayerItemVideoOutput") == 0 {
 			panic("no AVPlayer")
 		}
@@ -241,6 +258,9 @@ func toString(v any) string {
 // avEngine plays a video with an AVPlayer.
 type avEngine struct {
 	player, item, output objc.ID
+	// asset is what the item plays, kept to make another item from it
+	// when the speed changes the timeline.
+	asset                objc.ID
 	loader               uint64 // in loaders, for bytes in memory; 0 for none
 	delegate             objc.ID
 	quit                 chan struct{}
@@ -263,6 +283,26 @@ type avEngine struct {
 	// at its end, which the watching goroutine sees.
 	playing, loop, closed bool
 	rate                  float32
+	// factor is how much faster the item's timeline runs than the asset's:
+	// 1 for the asset itself, 1/speed for a timeline squeezed to play above
+	// maxFullRate (see retime).
+	factor float64
+}
+
+// maxFullRate is the fastest the player shows every picture at: above it,
+// AVFoundation plays the sound and keeps the clock, but hands the video
+// output no picture at all (measured on Intel macOS: 65 frames in 1.2 s at
+// 2.0, none at 2.5, none at 3.0, at any pitch algorithm).
+const maxFullRate = 2.0
+
+// timelineFor is how much the timeline is squeezed for a speed, and the
+// rate the player then runs at: above maxFullRate the squeeze alone makes
+// the speed, so that every picture is decoded.
+func timelineFor(speed float64) (factor, rate float64) {
+	if speed > maxFullRate {
+		return 1 / speed, 1
+	}
+	return 1, speed
 }
 
 func newEngine(s source) (media.Engine, error) {
@@ -270,7 +310,7 @@ func newEngine(s source) (media.Engine, error) {
 		return nil, err
 	}
 	defer pooled()()
-	e := &avEngine{quit: make(chan struct{}), done: make(chan struct{}), rate: 1}
+	e := &avEngine{quit: make(chan struct{}), done: make(chan struct{}), rate: 1, factor: 1}
 	var asset objc.ID
 	if s.data != nil {
 		if err := loadDelegate(); err != nil {
@@ -290,11 +330,8 @@ func newEngine(s source) (media.Engine, error) {
 		asset = send(send(class("AVURLAsset"), "alloc"), "initWithURL:options:", url, objc.ID(0))
 	}
 	e.item = send(send(class("AVPlayerItem"), "alloc"), "initWithAsset:", asset)
-	send(asset, "release")
-	attrs := send(class("NSDictionary"), "dictionaryWithObjects:forKeys:count:",
-		unsafe.Pointer(&[2]objc.ID{send(class("NSNumber"), "numberWithUnsignedInt:", uint32(pixelFormat420v)), send(class("NSNumber"), "numberWithBool:", true)}),
-		unsafe.Pointer(&[2]uintptr{cvPixelFormatKey, cvMetalCompatibilityKey}), uint(2))
-	e.output = send(send(class("AVPlayerItemVideoOutput"), "alloc"), "initWithPixelBufferAttributes:", attrs)
+	e.asset = asset
+	e.output = newOutput()
 	send(e.item, "addOutput:", e.output)
 	e.player = send(send(class("AVPlayer"), "alloc"), "initWithPlayerItem:", e.item)
 	// The player pauses at the end, rather than stand at the end playing,
@@ -303,6 +340,15 @@ func newEngine(s source) (media.Engine, error) {
 	msgSetBool(e.player, sel("setPreventsDisplaySleepDuringVideoPlayback:"), true)
 	go e.watch()
 	return e, nil
+}
+
+// newOutput is a video output handing NV12 pixel buffers the renderer wraps
+// as textures, without a copy through memory.
+func newOutput() objc.ID {
+	attrs := send(class("NSDictionary"), "dictionaryWithObjects:forKeys:count:",
+		unsafe.Pointer(&[2]objc.ID{send(class("NSNumber"), "numberWithUnsignedInt:", uint32(pixelFormat420v)), send(class("NSNumber"), "numberWithBool:", true)}),
+		unsafe.Pointer(&[2]uintptr{cvPixelFormatKey, cvMetalCompatibilityKey}), uint(2))
+	return send(send(class("AVPlayerItemVideoOutput"), "alloc"), "initWithPixelBufferAttributes:", attrs)
 }
 
 func itoa(n uint64) string {
@@ -535,12 +581,71 @@ func (e *avEngine) Size() (int, int) { return e.w, e.h }
 
 func (e *avEngine) Duration() time.Duration {
 	d, _ := msgCMTime(e.item, sel("duration")).duration()
-	return d
+	return time.Duration(float64(d) / e.factor)
 }
 
-func (e *avEngine) Position() time.Duration {
+func (e *avEngine) Position() time.Duration { return e.realPosition() }
+
+// realPosition is where playback is in the asset's timeline, whatever the
+// item's timeline is squeezed to.
+func (e *avEngine) realPosition() time.Duration {
 	d, _ := msgCMTime(e.item, sel("currentTime")).duration()
-	return d
+	return time.Duration(float64(d) / e.factor)
+}
+
+// setItem makes an item of the asset's timeline squeezed by factor, or the
+// asset's own item for 1. The sound keeps its pitch through the squeeze by
+// the spectral algorithm, which covers the whole range of edit rates.
+func (e *avEngine) setItem(factor float64) objc.ID {
+	if factor == 1 {
+		return send(send(class("AVPlayerItem"), "alloc"), "initWithAsset:", e.asset)
+	}
+	d, ok := msgCMTime(e.asset, sel("duration")).duration()
+	if !ok || d <= 0 {
+		return 0
+	}
+	comp := send(class("AVMutableComposition"), "composition")
+	span := wholeOf(d)
+	for _, media := range []uintptr{avMediaTypeVideo, avMediaTypeAudio} {
+		tracks := send(e.asset, "tracksWithMediaType:", media)
+		if tracks == 0 || msgInt(tracks, sel("count")) == 0 {
+			continue
+		}
+		track := send(comp, "addMutableTrackWithMediaType:preferredTrackID:", media, int32(0))
+		if track == 0 {
+			continue
+		}
+		msgInsertTimeRange(track, sel("insertTimeRange:ofTrack:atTime:error:"), span, send(tracks, "firstObject"), span.Start, nil)
+	}
+	msgScaleTimeRange(comp, sel("scaleTimeRange:toDuration:"), span, cmTimeOf(time.Duration(float64(d)*factor)))
+	item := send(send(class("AVPlayerItem"), "alloc"), "initWithAsset:", comp)
+	send(item, "setAudioTimePitchAlgorithm:", avPitchSpectral)
+	return item
+}
+
+// retime switches the item to a timeline running 1/factor times as long,
+// keeping the position and the playing state: a squeezed timeline is how
+// the player shows every picture above maxFullRate, where it hands the
+// video output none. It runs under mu.
+func (e *avEngine) retime(factor float64) {
+	pos := e.realPosition()
+	item := e.setItem(factor)
+	if item == 0 {
+		return
+	}
+	send(e.item, "removeOutput:", e.output)
+	send(e.output, "release")
+	e.output = newOutput()
+	send(item, "addOutput:", e.output)
+	send(e.player, "replaceCurrentItemWithPlayerItem:", item)
+	send(e.item, "release")
+	e.item, e.factor = item, factor
+	if pos > 0 {
+		e.seek(pos)
+	}
+	if e.playing {
+		msgSetFloat32(e.player, sel("setRate:"), e.rate)
+	}
 }
 
 func (e *avEngine) Play() {
@@ -570,10 +675,10 @@ func (e *avEngine) Seek(d time.Duration) {
 	e.seek(d)
 }
 
-// seek seeks to d exactly, under mu.
+// seek seeks to d exactly, in the asset's timeline, under mu.
 func (e *avEngine) seek(d time.Duration) {
 	zero := cmTime{Flags: cmTimeValid, Timescale: 1}
-	msgSeek(e.player, sel("seekToTime:toleranceBefore:toleranceAfter:"), cmTimeOf(d), zero, zero)
+	msgSeek(e.player, sel("seekToTime:toleranceBefore:toleranceAfter:"), cmTimeOf(time.Duration(float64(d)*e.factor)), zero, zero)
 }
 
 func (e *avEngine) SetLoop(loop bool) {
@@ -585,7 +690,11 @@ func (e *avEngine) SetLoop(loop bool) {
 func (e *avEngine) SetRate(r float64) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.rate = float32(r)
+	factor, rate := timelineFor(r)
+	e.rate = float32(rate)
+	if factor != e.factor {
+		e.retime(factor)
+	}
 	if e.playing && e.state != media.Ended {
 		msgSetFloat32(e.player, sel("setRate:"), e.rate)
 	}
@@ -615,6 +724,7 @@ func (e *avEngine) Close() error {
 	send(e.output, "release")
 	send(e.item, "release")
 	send(e.player, "release")
+	send(e.asset, "release")
 	if e.delegate != 0 {
 		send(e.delegate, "release")
 		loaders.Delete(e.loader)
