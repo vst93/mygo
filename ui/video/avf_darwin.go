@@ -287,6 +287,9 @@ type avEngine struct {
 	// 1 for the asset itself, 1/speed for a timeline squeezed to play above
 	// maxFullRate (see retime).
 	factor float64
+	// pending is the factor to retime to once the asset knows its duration:
+	// an app sets the speed as it opens, while the tracks still load.
+	pending float64
 }
 
 // maxFullRate is the fastest the player shows every picture at: above it,
@@ -417,6 +420,12 @@ func (e *avEngine) watch() {
 func (e *avEngine) poll() {
 	if e.closed {
 		return
+	}
+	if e.pending != 0 {
+		if e.retime(e.pending) {
+			e.pending = 0
+		}
+		return // the item changed: read it on the next tick
 	}
 	switch msgInt(e.item, sel("status")) {
 	case avStatusFailed:
@@ -600,7 +609,10 @@ func (e *avEngine) setItem(factor float64) objc.ID {
 	if factor == 1 {
 		return send(send(class("AVPlayerItem"), "alloc"), "initWithAsset:", e.asset)
 	}
-	d, ok := msgCMTime(e.asset, sel("duration")).duration()
+	// A factor whose asset has no duration yet waits for poll, which runs
+	// again every 25 ms: reading the asset's own duration here would load it
+	// on the thread that called SetRate.
+	d, ok := msgCMTime(e.item, sel("duration")).duration()
 	if !ok || d <= 0 {
 		return 0
 	}
@@ -627,12 +639,12 @@ func (e *avEngine) setItem(factor float64) objc.ID {
 // keeping the position and the playing state: a squeezed timeline is how
 // the player shows every picture above maxFullRate, where it hands the
 // video output none. It runs under mu.
-func (e *avEngine) retime(factor float64) {
-	pos := e.realPosition()
+func (e *avEngine) retime(factor float64) bool {
 	item := e.setItem(factor)
 	if item == 0 {
-		return
+		return false
 	}
+	pos := e.realPosition()
 	send(e.item, "removeOutput:", e.output)
 	send(e.output, "release")
 	e.output = newOutput()
@@ -646,6 +658,7 @@ func (e *avEngine) retime(factor float64) {
 	if e.playing {
 		msgSetFloat32(e.player, sel("setRate:"), e.rate)
 	}
+	return true
 }
 
 func (e *avEngine) Play() {
@@ -692,8 +705,9 @@ func (e *avEngine) SetRate(r float64) {
 	defer e.mu.Unlock()
 	factor, rate := timelineFor(r)
 	e.rate = float32(rate)
-	if factor != e.factor {
-		e.retime(factor)
+	e.pending = 0
+	if factor != e.factor && !e.retime(factor) {
+		e.pending = factor
 	}
 	if e.playing && e.state != media.Ended {
 		msgSetFloat32(e.player, sel("setRate:"), e.rate)
