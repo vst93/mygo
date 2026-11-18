@@ -290,6 +290,10 @@ type avEngine struct {
 	// pending is the factor to retime to once the asset knows its duration:
 	// an app sets the speed as it opens, while the tracks still load.
 	pending float64
+	// rebase is where playback stands while the item a retime made still
+	// seeks there: the new item's currentTime reads zero until it does, and
+	// a position that stepped back would step the progress bar back.
+	rebase atomic.Int64
 }
 
 // maxFullRate is the fastest the player shows every picture at: above it,
@@ -426,6 +430,9 @@ func (e *avEngine) poll() {
 			e.pending = 0
 		}
 		return // the item changed: read it on the next tick
+	}
+	if e.rebase.Load() != 0 && e.realPosition() > 0 {
+		e.rebase.Store(0) // the new item seeks where playback was
 	}
 	switch msgInt(e.item, sel("status")) {
 	case avStatusFailed:
@@ -593,7 +600,12 @@ func (e *avEngine) Duration() time.Duration {
 	return time.Duration(float64(d) / e.factor)
 }
 
-func (e *avEngine) Position() time.Duration { return e.realPosition() }
+func (e *avEngine) Position() time.Duration {
+	if v := e.rebase.Load(); v != 0 {
+		return time.Duration(v)
+	}
+	return e.realPosition()
+}
 
 // realPosition is where playback is in the asset's timeline, whatever the
 // item's timeline is squeezed to.
@@ -653,6 +665,7 @@ func (e *avEngine) retime(factor float64) bool {
 	send(e.item, "release")
 	e.item, e.factor = item, factor
 	if pos > 0 {
+		e.rebase.Store(int64(pos))
 		e.seek(pos)
 	}
 	if e.playing {
