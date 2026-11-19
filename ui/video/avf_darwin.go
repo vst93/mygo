@@ -294,6 +294,10 @@ type avEngine struct {
 	// seeks there: the new item's currentTime reads zero until it does, and
 	// a position that stepped back would step the progress bar back.
 	rebase atomic.Int64
+	// retired are the outputs of items a retime replaced, freed in Close:
+	// Frame takes one on the thread drawing the window, which may hold one
+	// for a frame after the watching goroutine replaced it.
+	retired []objc.ID
 }
 
 // maxFullRate is the fastest the player shows every picture at: above it,
@@ -483,18 +487,23 @@ func (e *avEngine) SetWake(wake func()) {
 
 func (e *avEngine) Frame(t time.Time) (media.Picture, bool, bool) {
 	defer pooled()()
+	// The item and its output are taken together: a retime replaces both on
+	// the watching goroutine, and the old output stays alive (see retired).
+	e.mu.Lock()
+	item, output := e.item, e.output
+	e.mu.Unlock()
 	// The picture due as the frame shows, and never one from before now:
 	// a Tester's clock stands still, and the player's runs on.
 	host := caCurrentMediaTime() + max(time.Until(t), 0).Seconds()
-	at := msgItemTimeForHostTime(e.output, sel("itemTimeForHostTime:"), host)
+	at := msgItemTimeForHostTime(output, sel("itemTimeForHostTime:"), host)
 	changed := false
-	if e.buf == 0 && msgInt(e.item, sel("status")) != avStatusReadyToPlay {
+	if e.buf == 0 && msgInt(item, sel("status")) != avStatusReadyToPlay {
 		// The output may have a picture before the item knows its
 		// duration: ready is both.
 		return media.Picture{}, false, false
 	}
-	if msgHasNewBuffer(e.output, sel("hasNewPixelBufferForItemTime:"), at) {
-		if buf := msgCopyBuffer(e.output, sel("copyPixelBufferForItemTime:itemTimeForDisplay:"), at, 0); buf != 0 {
+	if msgHasNewBuffer(output, sel("hasNewPixelBufferForItemTime:"), at) {
+		if buf := msgCopyBuffer(output, sel("copyPixelBufferForItemTime:itemTimeForDisplay:"), at, 0); buf != 0 {
 			// What drew the last one holds it still (the renderer's
 			// textures): the surface no longer shows it.
 			if e.buf != 0 {
@@ -658,7 +667,7 @@ func (e *avEngine) retime(factor float64) bool {
 	}
 	pos := e.realPosition()
 	send(e.item, "removeOutput:", e.output)
-	send(e.output, "release")
+	e.retired = append(e.retired, e.output)
 	e.output = newOutput()
 	send(item, "addOutput:", e.output)
 	send(e.player, "replaceCurrentItemWithPlayerItem:", item)
@@ -718,13 +727,18 @@ func (e *avEngine) SetRate(r float64) {
 	defer e.mu.Unlock()
 	factor, rate := timelineFor(r)
 	e.rate = float32(rate)
-	e.pending = 0
-	if factor != e.factor && !e.retime(factor) {
-		e.pending = factor
+	if factor == e.factor {
+		e.pending = 0
+		if e.playing && e.state != media.Ended {
+			msgSetFloat32(e.player, sel("setRate:"), e.rate)
+		}
+		return
 	}
-	if e.playing && e.state != media.Ended {
-		msgSetFloat32(e.player, sel("setRate:"), e.rate)
-	}
+	// The timeline has to change, which builds a composition and seeks: too
+	// much for the thread that called this, which is the one drawing the
+	// window. Pause now and let the watching goroutine do it (see poll).
+	e.pending = factor
+	send(e.player, "pause")
 }
 
 func (e *avEngine) SetVolume(v float64) { msgSetFloat32(e.player, sel("setVolume:"), float32(v)) }
@@ -752,6 +766,10 @@ func (e *avEngine) Close() error {
 	send(e.item, "release")
 	send(e.player, "release")
 	send(e.asset, "release")
+	for _, out := range e.retired {
+		send(out, "release")
+	}
+	e.retired = nil
 	if e.delegate != 0 {
 		send(e.delegate, "release")
 		loaders.Delete(e.loader)
