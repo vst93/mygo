@@ -463,7 +463,7 @@ func (e *avEngine) poll() {
 	dur, known := msgCMTime(e.item, sel("duration")).duration()
 	if known && cur >= dur-time.Millisecond && e.playing {
 		if e.loop {
-			e.seek(0)
+			e.seekExact(0)
 			msgSetFloat32(e.player, sel("setRate:"), e.rate)
 			return
 		}
@@ -679,7 +679,7 @@ func (e *avEngine) retime(factor float64) bool {
 	e.item, e.factor = item, factor
 	if pos > 0 {
 		e.rebase.Store(int64(pos))
-		e.seek(pos)
+		e.seekExact(pos)
 	}
 	if e.playing {
 		msgSetFloat32(e.player, sel("setRate:"), e.rate)
@@ -693,7 +693,7 @@ func (e *avEngine) Play() {
 	e.playing = true
 	if e.state == media.Ended {
 		e.state = media.Ready
-		e.seek(0)
+		e.seekExact(0)
 	}
 	msgSetFloat32(e.player, sel("setRate:"), e.rate)
 }
@@ -714,16 +714,24 @@ func (e *avEngine) Seek(d time.Duration) {
 	e.seek(d)
 }
 
-// seek seeks to d, in the asset's timeline, under mu.
+// seek seeks to d, in the asset's timeline, under mu, allowing the player to
+// land within seekTolerance of it.
 //
-// The tolerance is half a second rather than zero: an exact seek decodes from
-// the key frame before the target, which on a long video takes tens of
-// milliseconds and stalls the thread that asked (dragging the progress bar
-// seeks on every move). Half a second is under what a viewer notices, and the
-// player snaps to the nearest key frame instead.
+// The tolerance is what a viewer asks for from a progress bar: an exact seek
+// decodes from the key frame before the target, which on a long video takes
+// tens of milliseconds and stalls the thread that asked (dragging seeks on
+// every move). Half a second is under what a viewer notices.
 func (e *avEngine) seek(d time.Duration) {
 	tolerance := cmTimeOf(seekTolerance)
 	msgSeek(e.player, sel("seekToTime:toleranceBefore:toleranceAfter:"), cmTimeOf(time.Duration(float64(d)*e.factor)), tolerance, tolerance)
+}
+
+// seekExact seeks to d exactly, under mu, for the seeks the engine makes on
+// its own: where playback continues after a retime or a loop must not drift
+// by the tolerance the progress bar allows.
+func (e *avEngine) seekExact(d time.Duration) {
+	zero := cmTime{Flags: cmTimeValid, Timescale: 1}
+	msgSeek(e.player, sel("seekToTime:toleranceBefore:toleranceAfter:"), cmTimeOf(time.Duration(float64(d)*e.factor)), zero, zero)
 }
 
 func (e *avEngine) SetLoop(loop bool) {
