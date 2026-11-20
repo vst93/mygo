@@ -300,6 +300,10 @@ type avEngine struct {
 	retired []objc.ID
 }
 
+// seekTolerance is how far from the asked-for time a seek may land, so that
+// the player jumps to a key frame instead of decoding up to the exact frame.
+const seekTolerance = 500 * time.Millisecond
+
 // maxFullRate is the fastest the player shows every picture at: above it,
 // AVFoundation plays the sound and keeps the clock, but hands the video
 // output no picture at all (measured on Intel macOS: 65 frames in 1.2 s at
@@ -710,10 +714,16 @@ func (e *avEngine) Seek(d time.Duration) {
 	e.seek(d)
 }
 
-// seek seeks to d exactly, in the asset's timeline, under mu.
+// seek seeks to d, in the asset's timeline, under mu.
+//
+// The tolerance is half a second rather than zero: an exact seek decodes from
+// the key frame before the target, which on a long video takes tens of
+// milliseconds and stalls the thread that asked (dragging the progress bar
+// seeks on every move). Half a second is under what a viewer notices, and the
+// player snaps to the nearest key frame instead.
 func (e *avEngine) seek(d time.Duration) {
-	zero := cmTime{Flags: cmTimeValid, Timescale: 1}
-	msgSeek(e.player, sel("seekToTime:toleranceBefore:toleranceAfter:"), cmTimeOf(time.Duration(float64(d)*e.factor)), zero, zero)
+	tolerance := cmTimeOf(seekTolerance)
+	msgSeek(e.player, sel("seekToTime:toleranceBefore:toleranceAfter:"), cmTimeOf(time.Duration(float64(d)*e.factor)), tolerance, tolerance)
 }
 
 func (e *avEngine) SetLoop(loop bool) {
