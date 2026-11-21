@@ -290,6 +290,14 @@ type avEngine struct {
 	// pending is the factor to retime to once the asset knows its duration:
 	// an app sets the speed as it opens, while the tracks still load.
 	pending float64
+	// tries counts how often the retime was attempted: an asset whose duration
+	// never comes (a stream, a file still loading) must not be rebuilt every
+	// 25 ms for the rest of the session - that is what "keeps loading" was.
+	tries int
+	// noRetime tells that a retime failed for good: the player keeps its own
+	// timeline and plays at the fastest full-frame rate rather than trying
+	// forever.
+	noRetime bool
 	// rebase is where playback stands while the item a retime made still
 	// seeks there: the new item's currentTime reads zero until it does, and
 	// a position that stepped back would step the progress bar back.
@@ -299,6 +307,23 @@ type avEngine struct {
 	// for a frame after the watching goroutine replaced it.
 	retired []objc.ID
 }
+
+// seekSlack is the tolerance a seek may land within, in the item's timeline.
+//
+// The timeline runs 1/factor times as long as the asset's, so the same slack on
+// the viewer's clock is factor times it in the item's: without this, a squeezed
+// timeline would allow three times as much at 3x, and the picture would jump by
+// more than a second on every 拖动.
+func seekSlack(factor float64) time.Duration {
+	if factor <= 0 {
+		factor = 1
+	}
+	return time.Duration(float64(seekTolerance) * factor)
+}
+
+// maxRetimeTries is how often a squeezed timeline is retried before the speed
+// is given up (25 ms a tick, so about a second).
+const maxRetimeTries = 40
 
 // seekTolerance is how far from the asked-for time a seek may land, so that
 // the player jumps to a key frame instead of decoding up to the exact frame.
@@ -435,7 +460,12 @@ func (e *avEngine) poll() {
 	}
 	if e.pending != 0 {
 		if e.retime(e.pending) {
-			e.pending = 0
+			e.pending, e.tries = 0, 0
+		} else if e.tries++; e.tries > maxRetimeTries {
+			// The duration never came: give the speed up rather than rebuilding
+			// an item every tick (the picture stalled, the window kept loading).
+			e.pending, e.tries = 0, 0
+			e.noRetime = true
 		}
 		return // the item changed: read it on the next tick
 	}
@@ -679,7 +709,10 @@ func (e *avEngine) retime(factor float64) bool {
 	e.item, e.factor = item, factor
 	if pos > 0 {
 		e.rebase.Store(int64(pos))
-		e.seekExact(pos)
+		// A tolerant seek: this runs right after a new item was made, and an
+		// exact seek on a long video decodes from the key frame - seconds of
+		// work while the window shows the old picture.
+		e.seek(pos)
 	}
 	if e.playing {
 		msgSetFloat32(e.player, sel("setRate:"), e.rate)
@@ -722,7 +755,7 @@ func (e *avEngine) Seek(d time.Duration) {
 // tens of milliseconds and stalls the thread that asked (dragging seeks on
 // every move). Half a second is under what a viewer notices.
 func (e *avEngine) seek(d time.Duration) {
-	tolerance := cmTimeOf(seekTolerance)
+	tolerance := cmTimeOf(seekSlack(e.factor))
 	msgSeek(e.player, sel("seekToTime:toleranceBefore:toleranceAfter:"), cmTimeOf(time.Duration(float64(d)*e.factor)), tolerance, tolerance)
 }
 
@@ -755,7 +788,16 @@ func (e *avEngine) SetRate(r float64) {
 	// The timeline has to change, which builds a composition and seeks: too
 	// much for the thread that called this, which is the one drawing the
 	// window. Pause now and let the watching goroutine do it (see poll).
-	e.pending = factor
+	if e.noRetime {
+		// The timeline cannot be squeezed for this asset: play at the fastest
+		// full-frame rate instead of freezing.
+		e.rate = float32(maxFullRate)
+		if e.playing && e.state != media.Ended {
+			msgSetFloat32(e.player, sel("setRate:"), e.rate)
+		}
+		return
+	}
+	e.pending, e.tries = factor, 0
 	send(e.player, "pause")
 }
 

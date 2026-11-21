@@ -31,3 +31,28 @@ func TestTimelineFor(t *testing.T) {
 		}
 	}
 }
+
+// TestSeekSlackScalesWithTimeline pins that a seek lands within the same slack
+// on the viewer's clock whatever the speed: the tolerance is applied in the
+// item's timeline, which runs 1/factor times as long. Without the scaling a
+// squeezed timeline allows 1/factor times as much — 1.5 s at 3× — which is a
+// visible jump on every drag.
+func TestSeekSlackScalesWithTimeline(t *testing.T) {
+	for _, c := range []struct {
+		speed, factor float64
+	}{
+		{1, 1}, {1.5, 1}, {2, 1}, {2.5, 0.4}, {3, 1.0 / 3.0}, {4, 0.25},
+	} {
+		factor, _ := timelineFor(c.speed)
+		if factor != c.factor {
+			t.Fatalf("timelineFor(%v) = %v; want %v", c.speed, factor, c.factor)
+		}
+		// On the viewer's clock the slack is what was asked for.
+		if got := float64(seekSlack(factor)) / factor; got != float64(seekTolerance) {
+			t.Errorf("speed %v: slack on the asset clock is %v; want %v", c.speed, got, seekTolerance)
+		}
+	}
+	if got := seekSlack(0); got != seekTolerance {
+		t.Errorf("seekSlack(0) = %v; want %v", got, seekTolerance)
+	}
+}
