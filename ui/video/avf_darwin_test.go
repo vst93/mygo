@@ -169,7 +169,9 @@ func TestSeekSlackScalesWithTimeline(t *testing.T) {
 			t.Fatalf("timelineFor(%v) = %v; want %v", c.speed, factor, c.factor)
 		}
 		// On the viewer's clock the slack is what was asked for.
-		if got := float64(seekSlack(factor)) / factor; got != float64(seekTolerance) {
+		// time.Duration rounds to whole nanoseconds on the squeezed
+		// clock: on the asset clock the error is less than 1/factor ns.
+		if got := float64(seekSlack(factor)) / factor; math.Abs(got-float64(seekTolerance)) >= 1/factor {
 			t.Errorf("speed %v: slack on the asset clock is %v; want %v", c.speed, got, seekTolerance)
 		}
 	}
