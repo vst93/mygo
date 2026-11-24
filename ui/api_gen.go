@@ -1352,6 +1352,7 @@ func DataDragOver(e Element, options transfer.DropOptions) (transfer.Offer, bool
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return coreDataDragOver(e.nodeFor(_ctx.rt), options)
 }
 
@@ -1435,6 +1436,7 @@ func DragOver[T any](e Element) (T, bool) {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return coreDragOver[T](e.nodeFor(_ctx.rt))
 }
 
@@ -1451,6 +1453,7 @@ func Drop[T any](e Element) (T, bool) {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return coreDrop[T](e.nodeFor(_ctx.rt))
 }
 
@@ -1464,6 +1467,7 @@ func DropData(e Element, options transfer.DropOptions) (transfer.Drop, bool) {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return coreDropData(e.nodeFor(_ctx.rt), options)
 }
 
@@ -1713,6 +1717,7 @@ func Local[T any](e Element, key any, init func() T) *T {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return coreLocal[T](e.nodeFor(_ctx.rt), key, init)
 }
 
@@ -1745,7 +1750,9 @@ func Local[T any](e Element, key any, init func() T) *T {
 // Right opens a submenu and Left closes it, the other way round right to
 // left (Direction); Enter and Space choose an item, Escape closes the
 // submenu on top, and Tab and a press outside the menu close it. The
-// pointer highlights the item it moves onto, opening its submenu.
+// pointer highlights the item it moves onto, opening its submenu, but for
+// those it crosses heading for a submenu that shows, which stays open
+// until the pointer rests on one of them (menuAimGrace).
 // Assistive technology sees a menu button, expanded while its menu shows,
 // and a menu of items, check box items and radio items. PopoverMenuButton
 // draws its menu with these parts, in the theme's look.
@@ -2497,6 +2504,8 @@ func Spinner(c *Context) Element {
 // gives way, keeping *size for when there is room again. Changed reports a
 // move. Right to left (Direction), first is on the right. SplitReset makes
 // a double click on the divider put first back at a size the app chooses.
+// SplitGap spaces the panes apart by a number of DIPs without drawing the
+// 1 DIP divider line, including 0 for flush panes.
 //
 //	ui.Split(c, &app.sidebar, app.files, app.editor).Fill()
 func Split(c *Context, size *float32, first func(), second func()) Element {
@@ -2664,7 +2673,8 @@ func SwitchBase(c *Context, on *bool) Element {
 // reports the new layout once the user lets go, or once a double click
 // fits a column to its cells, for the app to save. Columns wider
 // than the table scroll sideways, the header with them. With s.Sort, a
-// click on the header of a Sortable column sorts the rows by it; with
+// click on the header of a Sortable column sorts the rows by it, as Enter
+// and Space do on the header Tab reached; with
 // s.SortBy, a Cmd-click or a Shift-click sorts by it after the others;
 // with s.HeaderMenu, the header has a context menu.
 //
@@ -3631,6 +3641,7 @@ func (_handle Element) Animate(key any, target float32, d time.Duration) float32
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.Animate(key, target, d)
 }
 
@@ -3647,6 +3658,7 @@ func (_handle Element) AnimateColor(key any, target Color, a Animation) Color {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.AnimateColor(key, target, a)
 }
 
@@ -3705,6 +3717,7 @@ func (_handle Element) AnimateTo(key any, target float32, a Animation) float32 {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.AnimateTo(key, target, a)
 }
 
@@ -3717,6 +3730,7 @@ func (_handle Element) AnimateWith(key any, target float32, d time.Duration, eas
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.AnimateWith(key, target, d, ease)
 }
 
@@ -3730,6 +3744,7 @@ func (_handle Element) Arrived(key any) bool {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.Arrived(key)
 }
 
@@ -3824,6 +3839,7 @@ func (_handle Element) AttachedAnchors() (Anchor, Anchor) {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.AttachedAnchors()
 }
 
@@ -3863,15 +3879,17 @@ func (_handle Element) AutoComplete(kind AutoComplete) Element {
 }
 
 // AutoFocus gives the element the keyboard focus in the frame it appears,
-// as the first field of a dialog.
-func (_handle Element) AutoFocus() Element {
+// as the first field of a dialog. Its options, as Focus's, keep the scroll
+// where the user left it with PreventScroll.
+func (_handle Element) AutoFocus(options ...FocusOptions) Element {
 	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	return wrapElement(_node.AutoFocus())
+	_node.markStateRead()
+	return wrapElement(_node.AutoFocus(options...))
 }
 
 // Autocorrect turns an on-screen keyboard's corrections and suggestions on
@@ -3883,6 +3901,7 @@ func (_handle Element) Autocorrect(on bool) Element {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return wrapElement(_node.Autocorrect(on))
 }
 
@@ -3896,6 +3915,7 @@ func (_handle Element) Autofill(k AutofillKind) Element {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return wrapElement(_node.Autofill(k))
 }
 
@@ -4126,6 +4146,7 @@ func (_handle Element) Bounds() Rect {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.Bounds()
 }
 
@@ -4143,6 +4164,7 @@ func (_handle Element) Browse() Element {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return wrapElement(_node.Browse())
 }
 
@@ -4214,6 +4236,7 @@ func (_handle Element) Capitalize(c Capitalization) Element {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return wrapElement(_node.Capitalize(c))
 }
 
@@ -4242,6 +4265,7 @@ func (_handle Element) CaretWidth(width float32) Element {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return wrapElement(_node.CaretWidth(width))
 }
 
@@ -4265,6 +4289,7 @@ func (_handle Element) Changed() bool {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.Changed()
 }
 
@@ -4318,6 +4343,7 @@ func (_handle Element) ClickModifiers() Modifiers {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.ClickModifiers()
 }
 
@@ -4330,6 +4356,7 @@ func (_handle Element) Clicked() bool {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	_ctx.rt.applyInputs()
 	return _node.Clicked()
 }
@@ -4343,6 +4370,7 @@ func (_handle Element) Clicks() int {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	_ctx.rt.applyInputs()
 	return _node.Clicks()
 }
@@ -4518,6 +4546,7 @@ func (_handle Element) Composing() bool {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.Composing()
 }
 
@@ -4595,6 +4624,7 @@ func (_handle Element) ContextMenu(build func(m *Menu)) Element {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return wrapElement(_node.ContextMenu(build))
 }
 
@@ -4830,6 +4860,7 @@ func (_handle Element) DoubleClicked() bool {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	_ctx.rt.applyInputs()
 	return _node.DoubleClicked()
 }
@@ -4846,6 +4877,7 @@ func (_handle Element) Drag(value any) Element {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return wrapElement(_node.Drag(value))
 }
 
@@ -4860,6 +4892,7 @@ func (_handle Element) DragData(data transfer.Data, options ...transfer.DragOpti
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return wrapElement(_node.DragData(data, options...))
 }
 
@@ -4873,6 +4906,7 @@ func (_handle Element) DragDataFrom(data func() transfer.Data, options ...transf
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return wrapElement(_node.DragDataFrom(data, options...))
 }
 
@@ -4889,6 +4923,7 @@ func (_handle Element) DragEnded() (float32, float32, bool) {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.DragEnded()
 }
 
@@ -4904,6 +4939,7 @@ func (_handle Element) DragMissed() (Point, bool) {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.DragMissed()
 }
 
@@ -4920,6 +4956,7 @@ func (_handle Element) DragOffset() Point {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.DragOffset()
 }
 
@@ -4934,6 +4971,7 @@ func (_handle Element) DragVelocity() (float32, float32) {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.DragVelocity()
 }
 
@@ -4979,6 +5017,7 @@ func (_handle Element) Draggable(offset *Point, o DraggableOptions) Element {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return wrapElement(_node.Draggable(offset, o))
 }
 
@@ -4994,6 +5033,7 @@ func (_handle Element) Dragged() (float32, float32, bool) {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.Dragged()
 }
 
@@ -5006,6 +5046,7 @@ func (_handle Element) Dragging() bool {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.Dragging()
 }
 
@@ -5062,6 +5103,7 @@ func (_handle Element) DroppedFiles() []string {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.DroppedFiles()
 }
 
@@ -5180,6 +5222,7 @@ func (_handle Element) FileDragOver() bool {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.FileDragOver()
 }
 
@@ -5279,6 +5322,7 @@ func (_handle Element) Focus(options ...FocusOptions) Element {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return wrapElement(_node.Focus(options...))
 }
 
@@ -5380,6 +5424,7 @@ func (_handle Element) FocusVisible() bool {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.FocusVisible()
 }
 
@@ -5392,6 +5437,7 @@ func (_handle Element) FocusWithin() bool {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.FocusWithin()
 }
 
@@ -5415,6 +5461,7 @@ func (_handle Element) Focused() bool {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.Focused()
 }
 
@@ -5714,6 +5761,7 @@ func (_handle Element) Hovered() bool {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.Hovered()
 }
 
@@ -5725,6 +5773,7 @@ func (_handle Element) ID() uint64 {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.ID()
 }
 
@@ -5781,6 +5830,7 @@ func (_handle Element) InView() bool {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.InView()
 }
 
@@ -5805,6 +5855,7 @@ func (_handle Element) InViewAmount(amount float32, margin ...float32) bool {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.InViewAmount(amount, margin...)
 }
 
@@ -5824,6 +5875,7 @@ func (_handle Element) InViewMargin(margin ...float32) bool {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.InViewMargin(margin...)
 }
 
@@ -5928,6 +5980,7 @@ func (_handle Element) Jump(key any, value float32) float32 {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.Jump(key, value)
 }
 
@@ -6040,6 +6093,7 @@ func (_handle Element) Keyboard(k KeyboardType) Element {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return wrapElement(_node.Keyboard(k))
 }
 
@@ -6056,6 +6110,7 @@ func (_handle Element) Keyframes(key any, frames []Keyframe, options ...Keyframe
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.Keyframes(key, frames, options...)
 }
 
@@ -6128,6 +6183,7 @@ func (_handle Element) LayoutBounds() Rect {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.LayoutBounds()
 }
 
@@ -6211,6 +6267,7 @@ func (_handle Element) Lines(min int, max int) Element {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return wrapElement(_node.Lines(min, max))
 }
 
@@ -6222,6 +6279,7 @@ func (_handle Element) LocalToWindow(x float32, y float32) (float32, float32) {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.LocalToWindow(x, y)
 }
 
@@ -6235,6 +6293,7 @@ func (_handle Element) LongPressed() bool {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.LongPressed()
 }
 
@@ -6251,6 +6310,7 @@ func (_handle Element) Loop(key any, period time.Duration, ease Easing) float32 
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.Loop(key, period, ease)
 }
 
@@ -6428,6 +6488,7 @@ func (_handle Element) MaxLength(n int) Element {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return wrapElement(_node.MaxLength(n))
 }
 
@@ -6505,6 +6566,7 @@ func (_handle Element) Menu(build func(m *Menu)) Element {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return wrapElement(_node.Menu(build))
 }
 
@@ -6593,6 +6655,7 @@ func (_handle Element) Multiline(on bool) Element {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return wrapElement(_node.Multiline(on))
 }
 
@@ -6729,6 +6792,7 @@ func (_handle Element) OnPaste(fn func(text string) bool) Element {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return wrapElement(_node.OnPaste(fn))
 }
 
@@ -6771,6 +6835,7 @@ func (_handle Element) OnTextKey(fn func(k TextKey) bool) Element {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return wrapElement(_node.OnTextKey(fn))
 }
 
@@ -6802,6 +6867,7 @@ func (_handle Element) OnUnmount(fn func()) Element {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return wrapElement(_node.OnUnmount(fn))
 }
 
@@ -6948,6 +7014,7 @@ func (_handle Element) Password() Element {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return wrapElement(_node.Password())
 }
 
@@ -6973,6 +7040,7 @@ func (_handle Element) Placeholder(s string) Element {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return wrapElement(_node.Placeholder(s))
 }
 
@@ -6986,6 +7054,7 @@ func (_handle Element) PlaceholderColor(color Color) Element {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return wrapElement(_node.PlaceholderColor(color))
 }
 
@@ -7000,6 +7069,7 @@ func (_handle Element) PointerPosition() (float32, float32, bool) {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.PointerPosition()
 }
 
@@ -7026,15 +7096,17 @@ func (_handle Element) PointerPosition() (float32, float32, bool) {
 //	})
 //
 // The menu takes the focus as it opens and gives it back as it closes, to
-// the element that had it. Up and Down move among its items, past those
-// disabled, as do Home, End and typing the first letters of an item;
-// Right opens a submenu and Left closes it, the other way round right to
-// left (Direction); Enter and Space choose an item, Escape closes the
-// submenu on top, and a press outside the menu closes it. It shows below
-// and after where it opened, and on the other side where the window has
-// no room. Assistive technology sees a menu of items, check box items and
-// radio items, as the system's. ContextMenuBase is such a menu without a
-// look, for items of a layout of one's own.
+// the element that had it. Up and Down move among its items, as do Home,
+// End and typing the first letters of an item: past those disabled, as
+// macOS's and Linux's menus do, and onto them on Windows, as its menus do.
+// A disabled item shows its Tooltip as the pointer rests on it, and
+// choosing it does nothing. Right opens a submenu and Left closes it, the
+// other way round right to left (Direction); Enter and Space choose an
+// item, Escape closes the submenu on top, and a press outside the menu
+// closes it. It shows below and after where it opened, and on the other
+// side where the window has no room. Assistive technology sees a menu of
+// items, check box items and radio items, as the system's. ContextMenuBase
+// is such a menu without a look, for items of a layout of one's own.
 //
 // PopoverMenuButton draws the menu of a menu button so.
 //
@@ -7049,6 +7121,7 @@ func (_handle Element) PopoverMenu(build func(m *Menu), options ...PopoverMenuOp
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return wrapElement(_node.PopoverMenu(build, options...))
 }
 
@@ -7094,6 +7167,7 @@ func (_handle Element) PopoverMenuButton(build func(m *Menu), options ...Popover
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return wrapElement(_node.PopoverMenuButton(build, options...))
 }
 
@@ -7167,11 +7241,13 @@ func (_handle Element) PressCanceled() bool {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.PressCanceled()
 }
 
 // Pressed reports whether the element is being pressed with the pointer's
-// primary button, unless it is disabled. A press of another button, as a
+// primary button, or, focused, held down with Space, which clicks it as
+// it goes up, unless it is disabled. A press of another button, as a
 // right-click's, is no press here, as CSS's :active and drags on the web
 // have it: PressedButton tells which button presses the element.
 func (_handle Element) Pressed() bool {
@@ -7181,6 +7257,7 @@ func (_handle Element) Pressed() bool {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.Pressed()
 }
 
@@ -7198,6 +7275,7 @@ func (_handle Element) PressedButton() (int, bool) {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.PressedButton()
 }
 
@@ -7231,6 +7309,7 @@ func (_handle Element) PressedOutside() bool {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.PressedOutside()
 }
 
@@ -7248,6 +7327,7 @@ func (_handle Element) PressedPointer() (PointerType, float32, bool) {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.PressedPointer()
 }
 
@@ -7286,6 +7366,7 @@ func (_handle Element) PullToRefresh(s *RefreshState) bool {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.PullToRefresh(s)
 }
 
@@ -7316,6 +7397,7 @@ func (_handle Element) Query(q *string) Element {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return wrapElement(_node.Query(q))
 }
 
@@ -7382,6 +7464,7 @@ func (_handle Element) ReadOnly(on bool) Element {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return wrapElement(_node.ReadOnly(on))
 }
 
@@ -7404,6 +7487,7 @@ func (_handle Element) ReplaceText(start int, end int, s string) Element {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return wrapElement(_node.ReplaceText(start, end, s))
 }
 
@@ -7417,6 +7501,7 @@ func (_handle Element) ReturnKey(k ReturnKeyType) Element {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return wrapElement(_node.ReturnKey(k))
 }
 
@@ -7452,6 +7537,7 @@ func (_handle Element) RightClicked() bool {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	_ctx.rt.applyInputs()
 	return _node.RightClicked()
 }
@@ -7578,6 +7664,7 @@ func (_handle Element) RowClicked() bool {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.RowClicked()
 }
 
@@ -7615,6 +7702,7 @@ func (_handle Element) RowDoubleClicked() bool {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.RowDoubleClicked()
 }
 
@@ -7921,6 +8009,7 @@ func (_handle Element) SelectedTexts() []SelectedText {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.SelectedTexts()
 }
 
@@ -7947,6 +8036,7 @@ func (_handle Element) SetChanged() Element {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return wrapElement(_node.SetChanged())
 }
 
@@ -7960,6 +8050,7 @@ func (_handle Element) SetTextSelection(start int, end int) Element {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return wrapElement(_node.SetTextSelection(start, end))
 }
 
@@ -7973,6 +8064,7 @@ func (_handle Element) Settled(key any) bool {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.Settled(key)
 }
 
@@ -7999,6 +8091,7 @@ func (_handle Element) Shortcut(mods Modifiers, key Key) bool {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	_ctx.rt.applyInputs()
 	return _node.Shortcut(mods, key)
 }
@@ -8103,6 +8196,23 @@ func (_handle Element) Sort(dir SortDirection) Element {
 	return wrapElement(_node.Sort(dir))
 }
 
+// SplitGap spaces the two panes of a Split apart by v DIPs without drawing
+// the 1 DIP divider line between them, as two cards side by side or panes
+// that draw their own edges: SplitGap(0) puts them flush with no line, and
+// a positive v leaves that room between them, where the resize handle sits.
+//
+//	ui.Split(c, &app.sidebar, app.files, app.editor).SplitGap(8).Fill()
+func (_handle Element) SplitGap(v float32) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	_node.markStateRead()
+	return wrapElement(_node.SplitGap(v))
+}
+
 // SplitReset makes a double click on the divider of a Split put the first
 // pane at v, in the split's own unit: DIPs for Split and SplitVertical, a
 // percentage for SplitPercent and SplitVerticalPercent. A split without it
@@ -8118,6 +8228,7 @@ func (_handle Element) SplitReset(v float32) Element {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return wrapElement(_node.SplitReset(v))
 }
 
@@ -8130,6 +8241,7 @@ func (_handle Element) Spring(key any, target float32, options ...SpringOptions)
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.Spring(key, target, options...)
 }
 
@@ -8170,6 +8282,7 @@ func (_handle Element) Step(step float64) Element {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return wrapElement(_node.Step(step))
 }
 
@@ -8249,6 +8362,7 @@ func (_handle Element) Submitted() bool {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.Submitted()
 }
 
@@ -8306,6 +8420,7 @@ func (_handle Element) TextAnchorCaret() (int, int) {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.TextAnchorCaret()
 }
 
@@ -8360,6 +8475,7 @@ func (_handle Element) TextRanges(ranges ...TextRange) Element {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return wrapElement(_node.TextRanges(ranges...))
 }
 
@@ -8373,6 +8489,7 @@ func (_handle Element) TextSelection() (int, int) {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.TextSelection()
 }
 
@@ -8442,6 +8559,7 @@ func (_handle Element) Timeline(key any, o TimelineOptions) *Timeline {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.Timeline(key, o)
 }
 
@@ -8516,6 +8634,7 @@ func (_handle Element) Touches() []Touch {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.Touches()
 }
 
@@ -8527,6 +8646,7 @@ func (_handle Element) TrackLines(l *TextLines) Element {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return wrapElement(_node.TrackLines(l))
 }
 
@@ -8551,6 +8671,7 @@ func (_handle Element) TrackScroll(s *ScrollState) Element {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return wrapElement(_node.TrackScroll(s))
 }
 
@@ -8616,6 +8737,7 @@ func (_handle Element) Transitioning() bool {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.Transitioning()
 }
 
@@ -8757,6 +8879,7 @@ func (_handle Element) Velocity(key any) float32 {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.Velocity(key)
 }
 
@@ -8771,6 +8894,7 @@ func (_handle Element) Vertical() Element {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return wrapElement(_node.Vertical())
 }
 
@@ -8818,6 +8942,7 @@ func (_handle Element) WindowDoubleClicked() bool {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	_ctx.rt.applyInputs()
 	return _node.WindowDoubleClicked()
 }
@@ -8831,6 +8956,7 @@ func (_handle Element) WindowToLocal(x float32, y float32) (float32, float32, bo
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.WindowToLocal(x, y)
 }
 
