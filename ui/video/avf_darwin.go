@@ -260,11 +260,11 @@ type avEngine struct {
 	player, item, output objc.ID
 	// asset is what the item plays, kept to make another item from it
 	// when the speed changes the timeline.
-	asset                objc.ID
-	loader               uint64 // in loaders, for bytes in memory; 0 for none
-	delegate             objc.ID
-	quit                 chan struct{}
-	done                 chan struct{}
+	asset    objc.ID
+	loader   uint64 // in loaders, for bytes in memory; 0 for none
+	delegate objc.ID
+	quit     chan struct{}
+	done     chan struct{}
 
 	// buf is the CVPixelBuffer that Frame last returned, retained, and
 	// surface the surface showing it.
@@ -290,10 +290,10 @@ type avEngine struct {
 	// pending is the factor to retime to once the asset knows its duration:
 	// an app sets the speed as it opens, while the tracks still load.
 	pending float64
-	// tries counts how often the retime was attempted: an asset whose duration
-	// never comes (a stream, a file still loading) must not be rebuilt every
-	// 25 ms for the rest of the session - that is what "keeps loading" was.
-	tries int
+	// A seek during loading may not have landed on the old item when retime
+	// replaces it. Keep the requested position, including a seek to zero.
+	seekTo  time.Duration
+	seeking bool
 	// noRetime tells that a retime failed for good: the player keeps its own
 	// timeline and plays at the fastest full-frame rate rather than trying
 	// forever.
@@ -320,10 +320,6 @@ func seekSlack(factor float64) time.Duration {
 	}
 	return time.Duration(float64(seekTolerance) * factor)
 }
-
-// maxRetimeTries is how often a squeezed timeline is retried before the speed
-// is given up (25 ms a tick, so about a second).
-const maxRetimeTries = 40
 
 // seekTolerance is how far from the asked-for time a seek may land, so that
 // the player jumps to a key frame instead of decoding up to the exact frame.
@@ -458,20 +454,6 @@ func (e *avEngine) poll() {
 	if e.closed {
 		return
 	}
-	if e.pending != 0 {
-		if e.retime(e.pending) {
-			e.pending, e.tries = 0, 0
-		} else if e.tries++; e.tries > maxRetimeTries {
-			// The duration never came: give the speed up rather than rebuilding
-			// an item every tick (the picture stalled, the window kept loading).
-			e.pending, e.tries = 0, 0
-			e.noRetime = true
-		}
-		return // the item changed: read it on the next tick
-	}
-	if e.rebase.Load() != 0 && e.realPosition() > 0 {
-		e.rebase.Store(0) // the new item seeks where playback was
-	}
 	switch msgInt(e.item, sel("status")) {
 	case avStatusFailed:
 		e.state = media.Failed
@@ -484,6 +466,24 @@ func (e *avEngine) poll() {
 	case avStatusReadyToPlay:
 	default:
 		return // loading
+	}
+	if e.pending != 0 {
+		if e.retime(e.pending) {
+			e.pending = 0
+		} else if msgCMTime(e.item, sel("duration")).Flags&(cmTimeIndefinite|cmTimeInfinite) != 0 {
+			// A ready live stream has no finite timeline to squeeze. A
+			// file still loading is different: wait for its metadata,
+			// however long that takes, rather than losing the speed.
+			e.pending, e.seeking, e.noRetime = 0, false, true
+			e.rate = float32(maxFullRate)
+			if e.playing && e.state != media.Ended {
+				msgSetFloat32(e.player, sel("setRate:"), e.rate)
+			}
+		}
+		return // the item changed, or its duration is still loading
+	}
+	if e.rebase.Load() != 0 && e.realPosition() > 0 {
+		e.rebase.Store(0) // the new item seeks where playback was
 	}
 	if e.state == media.Loading && e.buf == 0 {
 		// Ready once its first picture shows (Frame).
@@ -671,6 +671,9 @@ func (e *avEngine) setItem(factor float64) objc.ID {
 	if !ok || d <= 0 {
 		return 0
 	}
+	// The current item may already be squeezed, while the composition
+	// takes its tracks from the original asset.
+	d = time.Duration(float64(d) / e.factor)
 	comp := send(class("AVMutableComposition"), "composition")
 	span := wholeOf(d)
 	for _, media := range []uintptr{avMediaTypeVideo, avMediaTypeAudio} {
@@ -700,6 +703,9 @@ func (e *avEngine) retime(factor float64) bool {
 		return false
 	}
 	pos := e.realPosition()
+	if e.seeking {
+		pos = e.seekTo
+	}
 	send(e.item, "removeOutput:", e.output)
 	e.retired = append(e.retired, e.output)
 	e.output = newOutput()
@@ -707,6 +713,7 @@ func (e *avEngine) retime(factor float64) bool {
 	send(e.player, "replaceCurrentItemWithPlayerItem:", item)
 	send(e.item, "release")
 	e.item, e.factor = item, factor
+	e.seeking = false
 	if pos > 0 {
 		e.rebase.Store(int64(pos))
 		// A tolerant seek: this runs right after a new item was made, and an
@@ -728,7 +735,9 @@ func (e *avEngine) Play() {
 		e.state = media.Ready
 		e.seekExact(0)
 	}
-	msgSetFloat32(e.player, sel("setRate:"), e.rate)
+	if e.pending == 0 {
+		msgSetFloat32(e.player, sel("setRate:"), e.rate)
+	}
 }
 
 func (e *avEngine) Pause() {
@@ -743,6 +752,10 @@ func (e *avEngine) Seek(d time.Duration) {
 	defer e.mu.Unlock()
 	if e.state == media.Ended {
 		e.state = media.Ready
+	}
+	if e.pending != 0 {
+		e.seekTo, e.seeking = d, true
+		e.rebase.Store(int64(d))
 	}
 	e.seek(d)
 }
@@ -780,6 +793,7 @@ func (e *avEngine) SetRate(r float64) {
 	e.rate = float32(rate)
 	if factor == e.factor {
 		e.pending = 0
+		e.seeking = false
 		if e.playing && e.state != media.Ended {
 			msgSetFloat32(e.player, sel("setRate:"), e.rate)
 		}
@@ -797,7 +811,7 @@ func (e *avEngine) SetRate(r float64) {
 		}
 		return
 	}
-	e.pending, e.tries = factor, 0
+	e.pending = factor
 	send(e.player, "pause")
 }
 
