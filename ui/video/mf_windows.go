@@ -461,7 +461,10 @@ func (e *mfEngine) Frame(time.Time) (media.Picture, bool, bool) {
 				e.shown, changed = i, true
 				e.w, e.h = int(w), int(h)
 				e.mu.Lock()
-				if e.state == media.Loading {
+				// A delivered picture also ends a stall. After a seek MF
+				// may resume frames without another PLAYING or CANPLAY.
+				// A cached picture or a failed transfer cannot prove that.
+				if e.state == media.Loading || e.state == media.Buffering {
 					e.state = media.Ready
 				}
 				e.mu.Unlock()

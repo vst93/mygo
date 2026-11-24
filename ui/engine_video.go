@@ -177,9 +177,9 @@ func (v *videoEngine) advance(c *context, p *VideoPlayer) {
 		if changed {
 			p.bitmap.showPicture(pic)
 		}
-		if v.state == media.Loading {
-			// The first picture, which makes the engine ready: it plays
-			// on from this frame, with no wake to come for it.
+		if v.state == media.Loading || v.state == media.Buffering {
+			// A picture can make the engine ready, initially or after
+			// a stall, with no wake to come for the change of state.
 			v.state, v.err = v.e.State()
 			if v.state == media.Ended && v.loop {
 				v.state = media.Ready

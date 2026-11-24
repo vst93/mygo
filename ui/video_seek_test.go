@@ -347,8 +347,8 @@ type fakeEngine struct {
 	seeks   []time.Duration
 	// intervals counts the calls of Interval.
 	intervals int
-	// readyOnFrame makes the engine ready by its first picture, in
-	// Frame, without a wake, as AVFoundation's does.
+	// readyOnFrame makes the engine ready by a picture, initially or
+	// after a stall, without a wake.
 	readyOnFrame bool
 }
 
@@ -363,6 +363,9 @@ func (e *fakeEngine) pos(t time.Time) time.Duration {
 }
 
 func (e *fakeEngine) Frame(t time.Time) (media.Picture, bool, bool) {
+	if e.state == media.Buffering && e.readyOnFrame {
+		e.state = media.Ready
+	}
 	if e.state == media.Loading {
 		if !e.readyOnFrame {
 			return media.Picture{}, false, false
@@ -514,6 +517,29 @@ func TestEngineVideoReadyByFrame(t *testing.T) {
 	tt.Advance(100 * time.Millisecond)
 	if got := shows(); got != videoGreen {
 		t.Fatalf("100ms on: %v", got)
+	}
+}
+
+// TestEngineVideoBufferingByFrame checks recovery without a resume event:
+// the player exposes the state obtained by Frame in that same build.
+func TestEngineVideoBufferingByFrame(t *testing.T) {
+	e := &fakeEngine{colors: []color.RGBA{videoRed, videoGreen}, shown: -1, state: media.Ready}
+	p := NewEngineVideoPlayer(e)
+	t.Cleanup(p.Close)
+	var buffering bool
+	tt := coreNewTester(func(c *context) {
+		coreVideo(c, p).Size(4, 4)
+		buffering = p.Buffering()
+	}, 4, 4)
+	e.state = media.Buffering
+	tt.Frame()
+	if !buffering {
+		t.Fatal("a cached picture cleared buffering")
+	}
+	e.readyOnFrame = true
+	tt.Frame()
+	if buffering || !p.Ready() || !p.Playing() {
+		t.Fatalf("recovered picture: buffering %v, ready %v, playing %v", buffering, p.Ready(), p.Playing())
 	}
 }
 

@@ -153,6 +153,27 @@ func TestSeek(t *testing.T) {
 	wait.Until(t, "the start, played again", func() bool { tt.Frame(); return near(shows(), red) })
 }
 
+// TestSeekWhilePlaying checks forward and backward seeks without pausing:
+// pictures resume and the public player leaves buffering as they do.
+func TestSeekWhilePlaying(t *testing.T) {
+	p, tt, shows := played(t, func() (*ui.VideoPlayer, error) { return OpenData(rgbMP4) })
+	p.SetLoop(true)
+	for _, s := range []struct {
+		at   time.Duration
+		want color.RGBA
+	}{{500 * time.Millisecond, green}, {900 * time.Millisecond, blue}, {100 * time.Millisecond, red}} {
+		p.Seek(s.at)
+		wait.Until(t, "playing at "+s.at.String(), func() bool {
+			tt.Frame()
+			checkErr(t, p)
+			return near(shows(), s.want) && !p.Buffering()
+		})
+		if !p.Playing() {
+			t.Fatal("a seek stopped a playing video")
+		}
+	}
+}
+
 // TestOpenNonASCIIPath checks that Open plays a file whose folder and name
 // are not ASCII, which Media Foundation could not find by its file: URL
 // (#1752).
